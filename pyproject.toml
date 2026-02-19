@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "django-tenant-core"
+version = "0.1.0"
+description = "Base multi-tenant para proyectos Django B2B con JWT, membresías y suscripciones"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+keywords = ["django", "multi-tenant", "saas", "jwt", "subscriptions"]
+
+dependencies = [
+    "django>=4.2",
+    "djangorestframework>=3.14",
+    "djangorestframework-simplejwt>=5.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-django>=4.7",
+    "model-bakery>=1.17",
+    "coverage>=7.3",
+    "ruff>=0.1",
+]
+
+[project.urls]
+Repository = "https://github.com/tu-org/django-tenant-core"
+Changelog  = "https://github.com/tu-org/django-tenant-core/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+include = ["tenant_core*"]
+
+# ─── pytest ──────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "tests.settings"
+python_files  = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+
+# ─── coverage ────────────────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["tenant_core"]
+omit   = ["*/migrations/*", "*/tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under   = 80   # el pipeline falla si la cobertura baja de 80%
+
+# ─── ruff (linter) ───────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]   # errores, flake8, imports ordenados
