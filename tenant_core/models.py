@@ -1,124 +1,127 @@
 # tenant_core/models.py
 from django.db import models
-from django.conf import settings
 from django.utils import timezone
 from .context import get_current_tenant
 from .exceptions import SubscriptionExpired, SubscriptionSuspended, PlanLimitExceeded
 
 
-# ─── Planes disponibles ───────────────────────────────────────────────────────
+# ─── Plan ─────────────────────────────────────────────────────────────────────
+
 
 class Plan(models.Model):
     """
     Define los planes disponibles y sus límites.
-    Se almacena en DB para poder modificarlos sin tocar código.
+    Se almacena en DB para modificarlos sin tocar código.
+
+    Cada proyecto define sus propios PLAN_CHOICES sobreescribiendo el campo 'name'.
+
+    Ejemplo en el proyecto:
+        class MyPlan(Plan):
+            PLAN_CHOICES = [('free', 'Free'), ('pro', 'Pro')]
+            name = models.CharField(max_length=50, choices=PLAN_CHOICES, unique=True)
+
+    Los límites específicos del proyecto van en extra_limits (JSONField):
+        {"max_vehicles": 10, "max_drivers": 5}
     """
-    PLAN_CHOICES = [
-        ('free',       'Free'),
-        ('pro',        'Pro'),
-        ('enterprise', 'Enterprise'),
-    ]
 
-    nombre      = models.CharField(max_length=50, choices=PLAN_CHOICES, unique=True)
-    descripcion = models.TextField(blank=True)
-    precio      = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-
-    # Límites — None significa ilimitado
-    max_usuarios  = models.PositiveIntegerField(null=True, blank=True, help_text="None = ilimitado")
-    max_registros = models.PositiveIntegerField(null=True, blank=True, help_text="Límite genérico de registros principales. None = ilimitado")
-
-    # Límites extra en JSON para que cada proyecto agregue los suyos sin migrar
-    # ej: {"max_vehiculos": 10, "max_conductores": 5}
-    limites_extra = models.JSONField(default=dict, blank=True)
-
+    name = models.CharField(max_length=50, unique=True)
+    description = models.TextField(blank=True)
+    price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    max_users = models.PositiveIntegerField(
+        null=True, blank=True, help_text="None = unlimited"
+    )
+    max_records = models.PositiveIntegerField(
+        null=True, blank=True, help_text="None = unlimited"
+    )
+    extra_limits = models.JSONField(default=dict, blank=True)
     is_active = models.BooleanField(default=True)
 
     class Meta:
         abstract = True
-        verbose_name = 'Plan'
-        verbose_name_plural = 'Planes'
+        verbose_name = "Plan"
+        verbose_name_plural = "Plans"
 
     def __str__(self):
-        return self.get_nombre_display()
+        return self.name
 
-    def get_limite(self, key):
-        """Obtiene un límite por nombre. Retorna None si es ilimitado."""
-        return self.limites_extra.get(key)
+    def get_limit(self, key):
+        """Retorna el límite por clave. None = ilimitado."""
+        return self.extra_limits.get(key)
 
 
-# ─── Suscripción ──────────────────────────────────────────────────────────────
+# ─── Subscription ─────────────────────────────────────────────────────────────
+
 
 class Subscription(models.Model):
     """
     Controla la vigencia y estado de pago del tenant.
-    Un tenant siempre tiene una suscripción activa (la más reciente).
-    El historial se conserva para auditoría.
+    Se conserva historial — la activa es la más reciente con status='active'.
     """
-    ESTADO_CHOICES = [
-        ('activa',    'Activa'),
-        ('vencida',   'Vencida'),
-        ('suspendida','Suspendida'),
-        ('cancelada', 'Cancelada'),
+
+    STATUS_CHOICES = [
+        ("active", "Active"),
+        ("expired", "Expired"),
+        ("suspended", "Suspended"),
+        ("cancelled", "Cancelled"),
     ]
 
-    # tenant se define como FK en el proyecto (ver abajo en Tenant base)
-    fecha_inicio    = models.DateField()
-    fecha_fin       = models.DateField()
-    estado          = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='activa')
-    renovacion_auto = models.BooleanField(default=True)
-    notas           = models.TextField(blank=True)  # para notas internas del admin
-    created_at      = models.DateTimeField(auto_now_add=True)
-    updated_at      = models.DateTimeField(auto_now=True)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="active")
+    auto_renewal = models.BooleanField(default=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         abstract = True
-        ordering = ['-fecha_inicio']
-        verbose_name = 'Suscripción'
-        verbose_name_plural = 'Suscripciones'
+        ordering = ["-start_date"]
+        verbose_name = "Subscription"
+        verbose_name_plural = "Subscriptions"
 
     def __str__(self):
-        return f"Suscripción {self.estado} — vence {self.fecha_fin}"
+        return f"Subscription {self.status} — expires {self.end_date}"
 
     @property
-    def dias_restantes(self):
-        delta = self.fecha_fin - timezone.now().date()
+    def days_remaining(self):
+        """Días restantes de la suscripción. Retorna 0 si ya venció."""
+        delta = self.end_date - timezone.now().date()
         return max(delta.days, 0)
 
     @property
-    def esta_vigente(self):
-        return (
-            self.estado == 'activa'
-            and self.fecha_fin >= timezone.now().date()
-        )
+    def is_active(self):
+        """True si la suscripción está activa y dentro de su vigencia."""
+        return self.status == "active" and self.end_date >= timezone.now().date()
 
-    def verificar_acceso(self):
+    def verify_access(self):
         """
-        Lanza excepción si la suscripción no permite acceso.
-        Se llama desde el middleware.
+        Verifica que la suscripción permita acceso.
+        Lanza excepción si no — el middleware la captura.
         """
-        if self.estado == 'suspendida':
+        if self.status == "suspended":
             raise SubscriptionSuspended(
-                "Tu cuenta está suspendida. Contacta a soporte."
+                "Your account is suspended. Please contact support."
             )
-        if self.estado == 'cancelada':
-            raise SubscriptionSuspended(
-                "Tu suscripción ha sido cancelada."
-            )
-        if not self.esta_vigente:
+        if self.status == "cancelled":
+            raise SubscriptionSuspended("Your subscription has been cancelled.")
+        if not self.is_active:
             raise SubscriptionExpired(
-                f"Tu suscripción venció el {self.fecha_fin}. Renuévala para continuar."
+                f"Your subscription expired on {self.end_date}. Please renew to continue."
             )
 
 
-# ─── Tenant Base ──────────────────────────────────────────────────────────────
+# ─── Tenant ───────────────────────────────────────────────────────────────────
+
 
 class Tenant(models.Model):
     """
-    Modelo base abstracto. Cada proyecto lo extiende con sus propios campos.
+    Modelo base abstracto del cliente B2B.
+    Cada proyecto lo extiende con sus propios campos de negocio.
     """
-    name       = models.CharField(max_length=200)
-    slug       = models.SlugField(unique=True)
-    is_active  = models.BooleanField(default=True)
+
+    name = models.CharField(max_length=200)
+    slug = models.SlugField(unique=True)
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -128,70 +131,87 @@ class Tenant(models.Model):
     def __str__(self):
         return self.name
 
-    def get_suscripcion_activa(self):
-        """Retorna la suscripción más reciente."""
-        return self.suscripciones.filter(estado='activa').first()
+    def get_active_subscription(self):
+        """Retorna la suscripción activa más reciente del tenant."""
+        return self.subscriptions.filter(status="active").first()
 
-    def verificar_suscripcion(self):
-        """Verifica que la suscripción permita acceso. Lanza excepción si no."""
-        suscripcion = self.get_suscripcion_activa()
-        if not suscripcion:
-            raise SubscriptionExpired("No tienes una suscripción activa.")
-        suscripcion.verificar_acceso()
-
-    def verificar_limite(self, key, queryset):
+    def verify_subscription(self):
         """
-        Verifica si se puede agregar un registro más según el plan.
-        
+        Verifica que la suscripción permita acceso.
+        Lanza excepción si no hay suscripción activa o está vencida.
+        """
+        subscription = self.get_active_subscription()
+        if not subscription:
+            raise SubscriptionExpired("No active subscription found.")
+        subscription.verify_access()
+
+    def verify_limit(self, key, queryset):
+        """
+        Verifica si se puede agregar un registro más según el plan actual.
+
         Uso:
-            tenant.verificar_limite('max_vehiculos', tenant.vehiculo_set.all())
+            tenant.verify_limit('max_vehicles', tenant.vehicle_set.all())
         """
-        suscripcion = self.get_suscripcion_activa()
-        if not suscripcion:
-            raise SubscriptionExpired("No tienes una suscripción activa.")
-
-        limite = suscripcion.plan.get_limite(key)
-        if limite is None:
-            return  # ilimitado, sin restricción
-
-        actual = queryset.count()
-        if actual >= limite:
+        subscription = self.get_active_subscription()
+        if not subscription:
+            raise SubscriptionExpired("No active subscription found.")
+        limit = subscription.plan.get_limit(key)
+        if limit is None:
+            return  # ilimitado
+        if queryset.count() >= limit:
             raise PlanLimitExceeded(
-                f"Alcanzaste el límite de {limite} para '{key}' en tu plan actual.",
-                limit_key=key
+                f"You have reached the limit of {limit} for '{key}' on your current plan.",
+                limit_key=key,
             )
 
 
-# ─── Membresía Usuario-Tenant ─────────────────────────────────────────────────
+# ─── TenantMembership ─────────────────────────────────────────────────────────
+
 
 class TenantMembership(models.Model):
     """
-    Relaciona usuarios con tenants.
-    - Usuarios normales: pertenecen a exactamente un tenant.
-    - Admins globales: no tienen membership, tienen acceso a todo vía is_staff.
-    """
-    ROL_CHOICES = [
-        ('owner',   'Propietario'),   # puede todo, incluyendo cancelar cuenta
-        ('admin',   'Administrador'), # puede todo excepto cancelar
-        ('staff',   'Staff'),         # acceso operativo
-        ('readonly','Solo lectura'),
-    ]
+    Relaciona usuarios con tenants y opcionalmente con una subsidiaria.
 
-    # user y tenant se definen con FKs concretas en el proyecto
-    rol        = models.CharField(max_length=20, choices=ROL_CHOICES, default='staff')
-    is_active  = models.BooleanField(default=True)
+    Los roles NO se definen en el core — cada proyecto define sus propios
+    choices en el modelo concreto según su lógica de negocio.
+
+    El mapa de permisos se configura en settings.py del proyecto:
+
+        ROLE_PERMISSIONS = {
+            'admin':    {'view_all', 'create', 'update', 'delete'},
+            'staff':    {'view_own', 'create', 'update_own'},
+            'driver':   {'view_own', 'update_mileage'},
+        }
+
+        ROLES_WITH_GLOBAL_VIEW = {'admin', 'manager'}
+    """
+
+    # tenant, user y subsidiary se definen con FKs concretas en el proyecto
+    role = models.CharField(max_length=30, default="readonly")
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         abstract = True
-        verbose_name = 'Membresía'
-        verbose_name_plural = 'Membresías'
+        verbose_name = "Membership"
+        verbose_name_plural = "Memberships"
 
     def __str__(self):
-        return f"{self.user} → {self.tenant} ({self.rol})"
+        return f"{self.user} → {self.tenant} ({self.role})"
+
+    def has_permission(self, permission):
+        """
+        Verifica si este rol tiene un permiso específico.
+        Lee el mapa de permisos desde settings.ROLE_PERMISSIONS.
+        """
+        from django.conf import settings
+
+        role_permissions = getattr(settings, "ROLE_PERMISSIONS", {})
+        return permission in role_permissions.get(self.role, set())
 
 
 # ─── TenantAwareModel ─────────────────────────────────────────────────────────
+
 
 class TenantManager(models.Manager):
     def get_queryset(self):
@@ -202,12 +222,13 @@ class TenantManager(models.Manager):
 
 class TenantAwareModel(models.Model):
     """
-    Modelo base para todos los modelos de negocio.
-    Hereda tenant FK + filtrado automático.
+    Modelo base para todos los modelos de negocio del proyecto.
+    - objects     → filtrado automático por tenant activo en el contexto
+    - all_objects → sin filtro, para admin global y tareas de sistema
     """
-    # tenant se define como FK concreta en cada proyecto apuntando a su modelo Tenant
-    objects     = TenantManager()  # filtrado por tenant activo
-    all_objects = models.Manager() # sin filtro — solo para admin global y tareas
+
+    objects = TenantManager()
+    all_objects = models.Manager()
 
     def save(self, *args, **kwargs):
         if not self.tenant_id:

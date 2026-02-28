@@ -7,12 +7,13 @@ from .exceptions import PlanLimitExceeded
 
 class TenantRequiredMixin:
     """
-    Bloquea el acceso si no hay tenant en el contexto.
+    Bloquea el acceso si no hay tenant activo en el contexto.
     Compatible con Django CBVs y DRF ViewSets/APIViews.
     """
+
     def dispatch(self, request, *args, **kwargs):
-        if not get_current_tenant() and not getattr(request, 'user', None).is_staff:
-            raise DRFPermissionDenied("Se requiere un tenant activo.")
+        if not get_current_tenant() and not getattr(request.user, "is_staff", False):
+            raise DRFPermissionDenied("An active tenant is required.")
         return super().dispatch(request, *args, **kwargs)
 
 
@@ -22,36 +23,38 @@ class TenantQuerysetMixin:
     Complementa al TenantManager del modelo.
     Usar siempre junto a TenantRequiredMixin.
     """
+
     def get_queryset(self):
         qs = super().get_queryset()
         tenant = get_current_tenant()
-        if tenant and hasattr(qs.model, 'tenant'):
+        if tenant and hasattr(qs.model, "tenant"):
             return qs.filter(tenant=tenant)
         return qs
 
 
 class PlanLimitMixin:
     """
-    Mixin para verificar límites del plan antes de crear un objeto.
-    
+    Verifica los límites del plan antes de crear un objeto.
+
     Uso en el ViewSet:
-        class VehiculoViewSet(PlanLimitMixin, ...):
-            plan_limit_key = 'max_vehiculos'
-            
+        class VehicleViewSet(PlanLimitMixin, ...):
+            plan_limit_key = 'max_vehicles'
+
             def get_plan_limit_queryset(self):
-                return Vehiculo.objects.all()  # ya filtrado por tenant
+                return Vehicle.objects.all()  # ya filtrado por tenant
     """
-    plan_limit_key = None  # ej: 'max_vehiculos'
+
+    plan_limit_key = None
 
     def get_plan_limit_queryset(self):
         """Sobreescribir para retornar el queryset a contar."""
-        raise NotImplementedError("Define get_plan_limit_queryset() en tu ViewSet.")
+        raise NotImplementedError("Define get_plan_limit_queryset() in your ViewSet.")
 
     def perform_create(self, serializer):
         tenant = get_current_tenant()
         if self.plan_limit_key and tenant:
             try:
-                tenant.verificar_limite(self.plan_limit_key, self.get_plan_limit_queryset())
+                tenant.verify_limit(self.plan_limit_key, self.get_plan_limit_queryset())
             except PlanLimitExceeded as e:
                 raise DRFPermissionDenied(str(e))
         super().perform_create(serializer)
@@ -62,11 +65,12 @@ class AdminOrTenantMixin:
     Permite acceso total a is_staff.
     Para usuarios normales, aplica filtro de tenant.
     """
+
     def get_queryset(self):
         qs = super().get_queryset()
         user = self.request.user
         if user.is_staff:
-            return qs  # admin ve todo
+            return qs
         tenant = get_current_tenant()
         if tenant:
             return qs.filter(tenant=tenant)
