@@ -69,8 +69,8 @@ class TenantMiddleware:
 
             # No verificar suscripción en impersonation — el staff
             # necesita poder entrar aunque la cuenta esté vencida
-            if not request.is_impersonating:
-                tenant.verify_subscription()
+            # if not request.is_impersonating:
+            #    tenant.verify_subscription()
 
             request.tenant = tenant
             set_current_tenant(tenant)

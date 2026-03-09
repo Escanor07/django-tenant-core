@@ -134,19 +134,19 @@ class Tenant(models.Model):
     def __str__(self):
         return self.name
 
-    def get_active_subscription(self):
+    #def get_active_subscription(self):
         """Retorna la suscripción activa más reciente del tenant."""
-        return self.subscriptions.filter(status="active").first()
+    #    return self.subscriptions.filter(status="active").first()
 
-    def verify_subscription(self):
+    #def verify_subscription(self):
         """
         Verifica que la suscripción permita acceso.
         Lanza excepción si no hay suscripción activa o está vencida.
         """
-        subscription = self.get_active_subscription()
-        if not subscription:
-            raise SubscriptionExpired("No active subscription found.")
-        subscription.verify_access()
+    #    subscription = self.get_active_subscription()
+    #    if not subscription:
+    #        raise SubscriptionExpired("No active subscription found.")
+    #    subscription.verify_access()
 
     def verify_limit(self, key, queryset):
         """
