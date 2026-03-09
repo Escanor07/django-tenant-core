@@ -239,7 +239,7 @@ class TenantAwareModel(models.Model):
     tenant = models.ForeignKey(
         settings.TENANT_MODEL,
         on_delete=models.CASCADE,
-        related_name="%(class)s",
+        related_name="%(app_label)s_%(class)s",
     )
     objects = TenantManager()
     all_objects = models.Manager()
