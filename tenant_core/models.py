@@ -235,7 +235,12 @@ class TenantAwareModel(models.Model):
     - objects     → filtrado automático por tenant activo en el contexto
     - all_objects → sin filtro, para admin global y tareas de sistema
     """
-    tenant = models.ForeignKey(TenantModel, on_delete=models.PROTECT, related_name="%(app_label)s_%(class)s_set")
+
+    tenant = models.ForeignKey(
+        settings.TENANT_MODEL,
+        on_delete=models.CASCADE,
+        related_name="%(class)s",
+    )
     objects = TenantManager()
     all_objects = models.Manager()
 
