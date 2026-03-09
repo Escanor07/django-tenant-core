@@ -1,9 +1,12 @@
 # tenant_core/models.py
 from django.db import models
 from django.utils import timezone
+from django.conf import settings
 from .context import get_current_tenant
 from .exceptions import SubscriptionExpired, SubscriptionSuspended, PlanLimitExceeded
-
+# importa el modelo tenannt de settings para usarlo en las relaciones de TenantMembership
+TenantModel = settings.TENANT_MODEL
+userModel = settings.AUTH_USER_MODEL
 
 # ─── Plan ─────────────────────────────────────────────────────────────────────
 
@@ -190,13 +193,20 @@ class TenantMembership(models.Model):
     role = models.CharField(max_length=30, default="readonly")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    tenant_id = foreign_key = models.ForeignKey(
+        TenantModel, on_delete=models.PROTECT, related_name="memberships"
+    )
+    user_id = foreign_key = models.ForeignKey(
+        userModel, on_delete=models.PROTECT, related_name="tenant_memberships"
+    )
 
     class Meta:
         abstract = True
         verbose_name = "Membership"
         verbose_name_plural = "Memberships"
+        unique_together = [['tenant_id', 'user_id']]
 
-    def __str__(self):
+    def __str__(self):  
         return f"{self.user} → {self.tenant} ({self.role})"
 
     def has_permission(self, permission):
@@ -226,7 +236,7 @@ class TenantAwareModel(models.Model):
     - objects     → filtrado automático por tenant activo en el contexto
     - all_objects → sin filtro, para admin global y tareas de sistema
     """
-
+    tenant = models.ForeignKey(TenantModel, on_delete=models.PROTECT, related_name="%(app_label)s_%(class)s_set")
     objects = TenantManager()
     all_objects = models.Manager()
 

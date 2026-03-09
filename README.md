@@ -39,7 +39,7 @@ ROLE_PERMISSIONS = {
     'direccion':     {'view_all', 'view_dashboard', 'authorize'},
     'staff':         {'view_own', 'create', 'update_own'},
     'conductor':     {'view_own', 'update_km'},
-}
+}   
 ROLES_WITH_GLOBAL_VIEW = {'administrador', 'direccion'}
 
 # ── Grupos de staff (panel interno, definidos por proyecto) ───────────────────
