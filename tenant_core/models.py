@@ -173,40 +173,39 @@ class Tenant(models.Model):
 
 class TenantMembership(models.Model):
     """
-    Relaciona usuarios con tenants y opcionalmente con una subsidiaria.
+    tenant y user se resuelven automáticamente desde settings:
+        TENANT_MODEL    = 'tenants.Company'
+        AUTH_USER_MODEL = 'tenants.CustomUser'
 
-    Los roles NO se definen en el core — cada proyecto define sus propios
-    choices en el modelo concreto según su lógica de negocio.
-
-    El mapa de permisos se configura en settings.py del proyecto:
-
-        ROLE_PERMISSIONS = {
-            'admin':    {'view_all', 'create', 'update', 'delete'},
-            'staff':    {'view_own', 'create', 'update_own'},
-            'driver':   {'view_own', 'update_mileage'},
-        }
-
-        ROLES_WITH_GLOBAL_VIEW = {'admin', 'manager'}
+    La llave única garantiza un usuario por tenant a nivel de DB.
     """
 
-    # tenant, user y subsidiary se definen con FKs concretas en el proyecto
+    tenant = models.ForeignKey(
+        settings.TENANT_MODEL,
+        on_delete=models.CASCADE,
+        related_name="memberships",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="memberships",
+    )
     role = models.CharField(max_length=30, default="readonly")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    tenant_id = foreign_key = models.ForeignKey(
-        TenantModel, on_delete=models.PROTECT, related_name="memberships"
-    )
-    user_id = foreign_key = models.ForeignKey(
-        userModel, on_delete=models.PROTECT, related_name="tenant_memberships"
-    )
 
     class Meta:
         abstract = True
         verbose_name = "Membership"
         verbose_name_plural = "Memberships"
-        unique_together = [['tenant_id', 'user_id']]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "user"],
+                name="%(app_label)s_%(class)s_unique_tenant_user",
+            )
+        ]
 
-    def __str__(self):  
+    def __str__(self):
         return f"{self.user} → {self.tenant} ({self.role})"
 
     def has_permission(self, permission):
