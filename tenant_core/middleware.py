@@ -51,7 +51,14 @@ class TenantMiddleware:
             user = self._authenticate_jwt(request)
 
             if not user:
-                return JsonResponse({"error": "Authentication required."}, status=401)
+                return JsonResponse(
+                    {
+                        "success": False,
+                        "message": "Authentication required.",
+                        "data": None,
+                        "error": "invalid_token",
+                    },
+                    status=401,)
 
             # Staff sin impersonation → acceso global sin filtro de tenant
             if user.is_staff and not self._has_impersonation_header(request):
@@ -79,17 +86,43 @@ class TenantMiddleware:
 
         except TenantNotFound:
             return JsonResponse(
-                {"error": "No tenant associated with this account."}, status=404
+                {
+                    "success": False,
+                    "message": "No tenant associated with this account.",
+                    "data": None,
+                    "error": "tenant_not_found",
+                },
+                status=404,
             )
         except TenantInactive:
-            return JsonResponse({"error": "This account is deactivated."}, status=403)
+            return JsonResponse(
+                {
+                    "success": False,
+                    "message": "This account is deactivated.",
+                    "data": None,
+                    "error": "tenant_inactive",
+                },
+                status=403,
+            )
         except SubscriptionExpired as e:
             return JsonResponse(
-                {"error": str(e), "code": "subscription_expired"}, status=402
+                {
+                    "success": False,
+                    "message": str(e),
+                    "data": None,
+                    "error": "subscription_expired",
+                },
+                status=402,
             )
         except SubscriptionSuspended as e:
             return JsonResponse(
-                {"error": str(e), "code": "subscription_suspended"}, status=402
+                {
+                    "success": False,
+                    "message": str(e),
+                    "data": None,
+                    "error": "subscription_suspended",
+                },
+                status=402,
             )
         finally:
             clear_current_tenant()
